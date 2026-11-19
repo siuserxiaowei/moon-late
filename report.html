@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="《月亮迟到了》项目报告：Lux3D 字形资产、场景制作与月光接力玩法。">
+  <title>项目报告 · 月亮迟到了</title>
+  <link rel="stylesheet" crossorigin href="./assets/report-DOZvhBAQ.css">
+</head>
+<body>
+  <header class="nav wrap"><a class="brand" href="./">月亮迟到了 <span>MOON, LATE</span></a><nav><a href="#lux3d">Lux3D 制作</a><a href="#journey">创作过程</a><a href="#assets">3D 资产</a><a class="nav-play" href="./">开始试玩 ↗</a></nav></header>
+  <main>
+    <section class="hero wrap"><div class="eyebrow">AHOLO 3D AI HACKATHON · PROJECT REPORT</div><h1>借一束月光，<br><em>照亮远方。</em></h1><p class="lead">《月亮迟到了》是一段关于思念的 3D 解谜。山遮住月亮，玩家转动铜镜、移动小舟，将一束光送进三扇彼此看不见的窗。</p><div class="hero-links"><a class="button primary" href="./">进入游戏</a><a class="button secondary" href="https://github.com/siuserxiaowei/moon-late">查看源码与 3D 文件</a></div><div class="hero-meta"><span>体验时间约 3–5 分钟</span><span>桌面浏览器体验更佳</span><span>Three.js + Lux3D</span></div></section>
+    <section class="feature wrap" aria-label="游戏画面"><img src="./report/gameplay-earlier.png" alt="较早版本的游戏画面：玩家利用铜镜把山间光束送往远处窗户"><div class="feature-caption"><span>山隙 → 铜镜 → 窗</span><small>玩法画面 · 较早版本</small></div></section>
+    <section class="section wrap intro" id="lux3d"><div><div class="eyebrow">THE ROLE OF LUX3D</div><h2>让汉字成为<br>山谷的一部分</h2></div><div><p class="large">五个以「山、水、火、木、月」为主题的 Lux3D GLB 模型，是场景视觉的出发点。</p><p>项目将这些已有模型导入浏览器，在 Three.js 中重新缩放、旋转、摆放并调整材质，让字形融入夜山、树木、河岸与火光。玩家体验中的铜镜、光路和三扇窗则由程序实现。</p><p class="note">现存材料未记录 Lux3D 的原始输入、生成参数或生成过程截图；这里展示的是保留下来的模型文件及其在项目中的实际使用，不虚构生成步骤。</p></div></section>
+    <section class="section wrap" id="assets"><div class="section-head"><div><div class="eyebrow">FIVE ORIGINAL 3D ASSETS</div><h2>五个模型，五种角色</h2></div><p>每张卡片都可直接下载原始 GLB，供评审查看。</p></div><div class="asset-grid">
+      <article class="asset"><span class="glyph">山</span><div><h3>山 · 山谷的轮廓</h3><p>同一模型复制三份，分别调整高度、宽深比例、方向及材质，叠成远近山体；程序化岩石补充自然轮廓。</p><a href="./models/shan.glb">下载 shan.glb ↓</a></div></article>
+      <article class="asset"><span class="glyph">水</span><div><h3>水 · 河湾里的水灵</h3><p>缩放并倾斜放置于河湾，加入蓝色调、发光材质与局部光晕。河面和涟漪则由程序单独绘制。</p><a href="./models/shui.glb">下载 shui.glb ↓</a></div></article>
+      <article class="asset"><span class="glyph">火</span><div><h3>火 · 村庄的暖意</h3><p>将火形模型放入火盆，配合暖色光晕与火光，和月夜的冷色形成对照。</p><a href="./models/huo.glb">下载 huo.glb ↓</a></div></article>
+      <article class="asset"><span class="glyph">木</span><div><h3>木 · 村口的树</h3><p>同一模型以不同尺寸、旋转角度和色调放置在四处；额外的程序化枝叶弱化生硬的字形。</p><a href="./models/mu.glb">下载 mu.glb ↓</a></div></article>
+      <article class="asset wide"><span class="glyph">月</span><div><h3>月 · 从字形到月牙</h3><p>原始月字模型仍保留并可下载。试玩反馈认为字形过于醒目，因此最终月升画面改用程序化月牙及柔和光晕；原始月模型不再用于最终月亮的显示。</p><a href="./models/yue.glb">下载 yue.glb ↓</a></div></article>
+    </div></section>
+    <section class="section wrap process" id="journey"><div class="section-head"><div><div class="eyebrow">FROM MODEL TO EXPERIENCE</div><h2>从 3D 资产到一束光</h2></div><p>把模型、场景和玩法连接成一段完整的短篇体验。</p></div><div class="steps"><article><b>01</b><h3>导入与适配</h3><p>通过 GLTFLoader 加载五个 GLB；依据包围盒计算比例和居中位置，再复制实例、设置旋转与位置。</p></article><article><b>02</b><h3>统一夜景</h3><p>克隆材质并调整色调、粗糙度、金属感和发光；用雾、暖窗与光晕把不同资产放进同一片夜色。</p></article><article><b>03</b><h3>加入玩法</h3><p>用代码制作铜镜、桥、舟、窗及光束。根据镜面角度判断光路，按顺序点亮东窗、对岸和山寺。</p></article><article><b>04</b><h3>试玩与调整</h3><p>根据反馈重新设计月亮，为山和树增加自然轮廓；扩大末关铜镜的点击范围，并加入角度吸附。</p></article></div></section>
+    <section class="section wrap finale"><div class="finale-image"><img src="./report/finale.jpg" alt="月亮升起后的游戏结尾画面"></div><div><div class="eyebrow">THE ENDING</div><h2>千里之外，<br>共看一轮月。</h2><p>三扇窗被依次照亮后，月亮越过山脊。先前借来的光仍留在山谷里，陪着故事走到结尾。</p><small>后续版本 · 通关结尾截图</small></div></section>
+    <section class="section wrap details"><div><div class="eyebrow">TECHNICAL NOTES</div><h2>实现与体验</h2></div><div><p>使用 Three.js、Vite 与 WebAudio；音效由 WebAudio 合成。镜面转动、舟的移动、窗口解锁、光束、水面和环境粒子由程序控制。光线是为玩法设计的模拟，而非物理级光线追踪。</p><p>这是一个可从头玩到结尾的短篇原型。模型文件合计约 40 MB，首次加载需要等待；竖屏可能裁切部分画面，建议使用支持 WebGL 的桌面浏览器。</p><div class="hero-links"><a class="button primary" href="./">开始试玩</a><a class="button secondary" href="https://github.com/siuserxiaowei/moon-late/tree/main/public/models">查看全部 3D 资产</a></div></div></section>
+  </main><footer class="wrap"><span>月亮迟到了 · MOON, LATE</span><a href="https://github.com/siuserxiaowei/moon-late">GitHub / 源码与资产</a></footer>
+</body></html>

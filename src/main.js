@@ -7,7 +7,6 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { buildWorld } from "./world.js";
 import { Soundscape } from "./audio.js";
 import { Beam, makeRadialTexture } from "./fx.js";
-import { snapMirrorAngle, withinMirrorTarget } from "./mirror-assist.js";
 
 /* ------------------------------------------------------------------ */
 /* renderer                                                            */
@@ -115,6 +114,7 @@ const ui = {
   soundBtn: document.querySelector("#soundBtn"),
   toast: document.querySelector("#poem-toast"),
   tip: document.querySelector("#tip"),
+  guidePill: document.querySelector("#guide-pill"),
   ending: document.querySelector("#ending"),
   replay: document.querySelector("#replay"),
   flash: document.querySelector("#flash"),
@@ -224,6 +224,10 @@ const _freeAimOut = new THREE.Vector3();
 const _softTarget = new THREE.Vector3();
 const _colorWin = new THREE.Color(0xffd3a0);
 const _colorMir = new THREE.Color(0xd2e6ff);
+const _aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _aimHit = new THREE.Vector3();
+const _aimNdc = new THREE.Vector2();
+const _pillV = new THREE.Vector3();
 
 /* ------------------------------------------------------------------ */
 /* camera                                                              */
@@ -354,8 +358,8 @@ function updateCamera(dt, time) {
 /* geometry helpers for aiming                                         */
 /* ------------------------------------------------------------------ */
 
-const TOL = 19 * (Math.PI / 180);
-const SOFT_TOL = 28 * (Math.PI / 180);
+const TOL = 15.5 * (Math.PI / 180);
+const SOFT_TOL = 26.0 * (Math.PI / 180);
 const STAGE_DOCK = [0, 1, 2];
 
 function wrapAngle(a) {
@@ -428,7 +432,9 @@ function freeAim(link, out = _freeAimOut) {
   let ox = di.x - 2 * dot * n.x;
   let oz = di.z - 2 * dot * n.z;
   const o = normalize2(ox, oz);
-  return out.set(from.x + o.x * 8.6, from.y - 1.3, from.z + o.z * 8.6);
+  const reach = Math.max(16, Math.min(34, from.distanceTo(link.to) * 1.05));
+  const targetY = THREE.MathUtils.lerp(from.y, link.to.y, 0.85);
+  return out.set(from.x + o.x * reach, targetY, from.z + o.z * reach);
 }
 
 /* ------------------------------------------------------------------ */
@@ -568,21 +574,24 @@ function updateLinkBeam(key, idx, active, from, link, def, baseStr, freeStr, lif
   }
   anim.wasOk = !!link.ok;
 
-  const showTip = assist > 0.25 && !solved[stage];
-  const pulseBase = def.kind === "window" ? 0.44 : 0.4;
-  const targetTipOpacity = showTip ? pulseBase * assist * (0.85 + 0.15 * Math.sin(elapsed * (2.1 + idx * 0.2) + idx)) : 0;
+  const isDraggingThis = drag && drag.mirror.id === key;
+  const showTip = (assist > 0.22 || isDraggingThis) && !solved[stage];
+  const pulseBase = def.kind === "window" ? 0.46 : 0.42;
+  const tipIntensity = isDraggingThis ? Math.max(0.26, assist) : assist;
+  const targetTipOpacity = showTip ? pulseBase * tipIntensity * (0.85 + 0.15 * Math.sin(elapsed * (2.1 + idx * 0.2) + idx)) : 0;
   anim.tipOpacity = damp(anim.tipOpacity, targetTipOpacity, 10, dt);
-  const targetScale = def.kind === "window" ? 3.0 : 2.2;
+  const targetScale = def.kind === "window" ? THREE.MathUtils.lerp(1.8, 3.0, assist) : THREE.MathUtils.lerp(1.5, 2.2, assist);
   anim.tipScale = damp(anim.tipScale, targetScale, 10, dt);
+  const desiredTipPos = assist > 0.4 ? target : anim.end;
   if (!anim.hasTip) {
-    anim.tipPos.copy(target);
+    anim.tipPos.copy(desiredTipPos);
     anim.hasTip = true;
   } else {
-    anim.tipPos.lerp(target, 1 - Math.exp(-dt * 14));
+    anim.tipPos.lerp(desiredTipPos, 1 - Math.exp(-dt * 16));
   }
   tip.position.copy(anim.tipPos);
   tip.material.opacity = anim.tipOpacity;
-  tip.material.color.copy(def.kind === "window" ? _colorWin : _colorMir);
+  tip.material.color.copy(assist > 0.4 && def.kind === "window" ? _colorWin : _colorMir);
   tip.scale.setScalar(anim.tipScale);
 }
 
@@ -604,9 +613,9 @@ function updateBeams(st, dt) {
   const C = world.getMirrorNode("c");
   const defs = chainDef(stage);
 
-  updateLinkBeam("a", 0, Boolean(A), A, st.links[0], defs[0], 0.74, 0.18, 0.35, dt);
-  updateLinkBeam("b", 1, stage >= 1 && !!st.links[0]?.ok, B, st.links[1], defs[1], 0.7, 0.24, 0.4, dt);
-  updateLinkBeam("c", 2, stage >= 2 && !!st.links[0]?.ok && !!st.links[1]?.ok, C, st.links[2], defs[2], 0.72, 0.24, 0.45, dt);
+  updateLinkBeam("a", 0, Boolean(A), A, st.links[0], defs[0], 0.78, 0.34, 0.35, dt);
+  updateLinkBeam("b", 1, stage >= 1 && !!st.links[0]?.ok, B, st.links[1], defs[1], 0.74, 0.32, 0.4, dt);
+  updateLinkBeam("c", 2, stage >= 2 && !!st.links[0]?.ok && !!st.links[1]?.ok, C, st.links[2], defs[2], 0.76, 0.32, 0.45, dt);
 }
 
 /* ------------------------------------------------------------------ */
@@ -822,25 +831,15 @@ function pick(clientX, clientY) {
   pointer.y = -(clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(world.interactives, false);
-  // Distant mirrors are visually small. Give the next mirror in the light
-  // path a generous screen-space target without stealing clicks from the boat
-  // while it still needs to move to its dock.
-  if (phase === "play" && stage === 2 && world.state.boatDock === STAGE_DOCK[stage] && !world.isBoatMoving()) {
-    const next = chainStatus().links.find((link) => link.powered && !link.ok);
-    if (next && next.mirror !== "a") {
-      const point = world.getMirrorNode(next.mirror).clone().project(camera);
-      const x = (point.x + 1) * window.innerWidth / 2;
-      const y = (1 - point.y) * window.innerHeight / 2;
-      if (withinMirrorTarget(clientX, clientY, x, y, point.z, isHandheld ? 52 : 42)) {
-        return { type: "mirror", mirror: world.mirrors[next.mirror] };
-      }
-    }
-  }
+  let fallback = null;
   for (const h of hits) {
     const data = h.object.userData.interact;
-    if (data) return data;
+    if (!data) continue;
+    if (data.type === "dock" && !world.dockMarkers[data.index]?.active) continue;
+    if (canMoveBoat() && (data.type === "dock" || data.type === "boat")) return data;
+    if (!fallback) fallback = data;
   }
-  return null;
+  return fallback;
 }
 
 function setTip(text, show) {
@@ -855,10 +854,15 @@ function setTip(text, show) {
 
 function tipFor(data) {
   if (!data) return "";
+  if (data.type === "dock") {
+    if (world.isBoatMoving()) return "小舟 · 正穿过河心";
+    return world.dockMarkers[data.index]?.active ? "点击 · 让小舟泊到这里" : "";
+  }
   if (data.type === "mirror") {
     const id = data.mirror.id;
+    if (id === "b" && canMoveBoat()) return "点击 · 让小舟去发亮的渡口";
     if (!canRotate(id)) return id === "c" ? "桥镜 · 还没有被月光唤醒" : "舟镜 · 借到光后才转动";
-    return id === "a" ? "拖动 · 旋转铜镜" : id === "b" ? "舟镜 · 拖动旋转" : "桥镜 · 拖动旋转";
+    return id === "a" ? "按住往目标方向拖 · 照亮目标" : id === "b" ? "舟镜 · 按住拖向目标" : "桥镜 · 按住拖向山寺";
   }
   if (data.type === "boat") {
     if (world.isBoatMoving()) return "小舟 · 正穿过河心";
@@ -882,11 +886,34 @@ function updateHover(clientX, clientY) {
   const data = pick(clientX, clientY);
   hoverData = data;
   if (drag) return;
-  setTip(tipFor(data), !!data);
+  const text = tipFor(data);
+  setTip(text, !!data && !!text);
   if (!data) canvas.style.cursor = "default";
-  else if (data.type === "mirror") canvas.style.cursor = canRotate(data.mirror.id) ? "grab" : "not-allowed";
+  else if (data.type === "dock") canvas.style.cursor = world.dockMarkers[data.index]?.active ? "pointer" : "default";
+  else if (data.type === "mirror") {
+    if (data.mirror.id === "b" && canMoveBoat()) canvas.style.cursor = "pointer";
+    else canvas.style.cursor = canRotate(data.mirror.id) ? "grab" : "not-allowed";
+  }
   else if (data.type === "boat") canvas.style.cursor = canMoveBoat() ? "pointer" : "default";
   else canvas.style.cursor = "pointer";
+}
+
+function aimMirrorAtClient(mirror, clientX, clientY) {
+  const from = world.getMirrorNode(mirror.id);
+  const incoming = incomingFor(mirror.id);
+  const link = chainDef(stage).find((l) => l.mirror === mirror.id);
+  const planeY = link ? link.receiver().y : from.y;
+  _aimPlane.constant = -planeY;
+  _aimNdc.set((clientX / window.innerWidth) * 2 - 1, -((clientY / window.innerHeight) * 2 - 1));
+  raycaster.setFromCamera(_aimNdc, camera);
+  const hit = raycaster.ray.intersectPlane(_aimPlane, _aimHit);
+  if (!hit || _aimHit.distanceTo(camera.position) > 180) {
+    raycaster.ray.at(32, _aimHit);
+  }
+  const horizDist = Math.hypot(_aimHit.x - from.x, _aimHit.z - from.z);
+  if (horizDist < 2.2) return;
+  const yaw = requiredYaw(from, incoming, _aimHit);
+  world.setTargetYaw(mirror, yaw);
 }
 
 function beginDrag(data, e) {
@@ -895,6 +922,7 @@ function beginDrag(data, e) {
   drag = {
     mirror: m,
     startX: e.clientX,
+    startY: e.clientY,
     startYaw: m.yawAngle,
     pointerId: e.pointerId,
     moved: false,
@@ -920,7 +948,19 @@ function onPointerDown(e) {
   const data = pick(e.clientX, e.clientY);
   if (!data) return;
   if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+  if (data.type === "dock") {
+    if (world.dockMarkers[data.index]?.active && !world.isBoatMoving()) {
+      e.preventDefault();
+      moveBoatTo(data.index);
+    }
+    return;
+  }
   if (data.type === "mirror") {
+    if (data.mirror.id === "b" && canMoveBoat()) {
+      e.preventDefault();
+      tryMoveBoat();
+      return;
+    }
     if (!canRotate(data.mirror.id)) {
       audio.ui();
       setToast(
@@ -945,10 +985,10 @@ function onPointerDown(e) {
       camState.focus = { target: data.target.center.clone(), age: 0, duration: 2.2, strength: 0.13 };
       setToast(
         stage === 0
-          ? "窗在东边。\n它看不见另外两扇窗。"
+          ? "窗在东边。\n按住铜镜拖向这扇窗。"
           : stage === 1
-            ? "窗在河对岸。\n光要先落在舟镜上。"
-            : "窗在山寺。\n只有桥镜能够到那里。",
+            ? "窗在河对岸。\n先移舟，再把光依次拖过来。"
+            : "窗在山寺。\n接力三面铜镜就能照到。",
         3.2
       );
       audio.ui();
@@ -963,16 +1003,9 @@ function onPointerMove(e) {
   pointerSeen = true;
   camState.pointer.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
   if (drag) {
-    const dx = e.clientX - drag.startX;
-    if (Math.abs(dx) > 2) drag.moved = true;
-    let angle = drag.startYaw + dx * 0.008;
-    // Gently catch the intended alignment in the final relay, so the player
-    // can release the pointer without having to hold a precise angle.
-    if (stage === 2 && world.state.boatDock === STAGE_DOCK[stage] && !world.isBoatMoving()) {
-      const link = chainStatus().links.find((item) => item.mirror === drag.mirror.id);
-      if (link) angle = snapMirrorAngle(angle, link.req, TOL, link.powered);
-    }
-    world.setTargetYaw(drag.mirror, angle);
+    const distPx = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY);
+    if (distPx > 6) drag.moved = true;
+    if (distPx > 10) aimMirrorAtClient(drag.mirror, e.clientX, e.clientY);
     ui.tip.classList.remove("show");
     return;
   }
@@ -997,6 +1030,85 @@ canvas.addEventListener("pointerleave", () => {
   if (!drag) canvas.style.cursor = "default";
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+addEventListener("keydown", (e) => {
+  if (!started || mode !== "game" || phase !== "play" || !world) return;
+  if (e.code === "Space" || e.code === "Enter") {
+    if (canMoveBoat()) {
+      e.preventDefault();
+      audio.unlock();
+      tryMoveBoat();
+    }
+    return;
+  }
+  if (e.code === "ArrowLeft" || e.code === "KeyA" || e.code === "ArrowRight" || e.code === "KeyD") {
+    const st = chainStatus();
+    const link = st.links.find((l) => !l.ok) || st.links[st.links.length - 1];
+    if (!link) return;
+    e.preventDefault();
+    audio.unlock();
+    const m = world.mirrors[link.mirror];
+    const dir = e.code === "ArrowLeft" || e.code === "KeyA" ? -1 : 1;
+    tweens.delete(m.id);
+    world.setTargetYaw(m, m.targetYaw + dir * 0.085);
+  }
+});
+
+function targetLabelFor(link) {
+  if (!link) return "";
+  if (link.kind === "window") return world.targets[link.index]?.name || "窗";
+  return link.id === "b" ? "舟镜" : "桥镜";
+}
+
+function updateGuidePill(st) {
+  const pill = ui.guidePill;
+  if (!pill || !world || !started || mode !== "game" || phase !== "play" || camState.debugView || world.isBoatMoving() || !st) {
+    pill?.classList.remove("show", "target-mode");
+    return;
+  }
+
+  let text = "";
+  let targetMode = false;
+
+  if (drag) {
+    const link = st.links.find((l) => l.mirror === drag.mirror.id);
+    if (link) {
+      _pillV.copy(link.to);
+      _pillV.y += link.kind === "window" ? 1.55 : 1.7;
+      text = `拖到这里 · ${targetLabelFor(link)}`;
+      targetMode = true;
+    }
+  } else if (stage > 0 && world.state.boatDock !== STAGE_DOCK[stage]) {
+    _pillV.copy(world.boatDockPoints[STAGE_DOCK[stage]]);
+    _pillV.y += 1.4;
+    text = "点击发亮渡口 · 移舟过来";
+    targetMode = true;
+  } else {
+    const link = st.links.find((l) => !l.ok);
+    if (link) {
+      _pillV.copy(world.getMirrorNode(link.mirror));
+      _pillV.y += 1.85;
+      text = `按住拖向「${targetLabelFor(link)}」`;
+    }
+  }
+
+  if (!text) {
+    pill.classList.remove("show", "target-mode");
+    return;
+  }
+
+  _pillV.project(camera);
+  if (_pillV.z > 1) {
+    pill.classList.remove("show", "target-mode");
+    return;
+  }
+  const sx = Math.max(88, Math.min(window.innerWidth - 88, (_pillV.x * 0.5 + 0.5) * window.innerWidth));
+  const sy = Math.max(76, Math.min(window.innerHeight - 96, (-_pillV.y * 0.5 + 0.5) * window.innerHeight));
+  if (pill.textContent !== text) pill.textContent = text;
+  pill.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+  pill.classList.toggle("target-mode", targetMode);
+  pill.classList.add("show");
+}
 
 function moveBoatTo(index, opts = {}) {
   if (index < 0 || index > 2) return;
@@ -1103,8 +1215,8 @@ function refreshHint(stArg = null) {
   }
   if (stage === 2) {
     if (!st.links[0]?.ok) setHint("先把光交给小舟。");
-    else if (!st.links[1]?.ok) setHint("按住小舟上的铜镜左右拖动，把光送到桥镜。");
-    else if (!st.links[2]?.ok) setHint("按住右侧桥镜左右拖动，让光照进山寺的窗。");
+    else if (!st.links[1]?.ok) setHint("光到了舟镜。再让舟镜转向桥上的铜镜。");
+    else if (!st.links[2]?.ok) setHint("桥镜亮了。最后转向山寺的窗。");
     else setHint("三面铜镜都对准了。山门要开了。");
   }
 }
@@ -1525,6 +1637,7 @@ function frame(now) {
 
     updateBeams(st, dt);
     updateGuide();
+    updateGuidePill(st);
     world.updateBeamMeshes(dt, elapsed, camera);
     for (const b of traceBeams) b.update(elapsed, camera);
     for (const b of guideBeams) b.update(elapsed, camera);

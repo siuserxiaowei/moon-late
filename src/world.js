@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { Beam, GlowPoints, makeRadialTexture, makeCloudTexture } from "./fx.js";
 
 const V3 = THREE.Vector3;
@@ -835,11 +836,11 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   /* ---------------------------------------------------------------- */
 
   let loaded = 0;
-  const totalAssets = 5;
+  const names = ["shan", "shui", "huo", "mu", "yue", "jing", "zhou", "ren"];
+  const totalAssets = names.length;
   const manager = new THREE.LoadingManager();
   manager.onProgress = () => {};
   const loader = new GLTFLoader(manager);
-  const names = ["shan", "shui", "huo", "mu", "yue"];
   const gltfs = {};
   await Promise.all(
     names.map(async (name) => {
@@ -893,22 +894,6 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
       root.add(g);
       mountains.push(g);
     }
-  }
-
-  // Break up the calligraphic models with irregular natural rock forms.
-  const rockMaterial = new THREE.MeshStandardMaterial({
-    color: 0x344b49, roughness: 1, metalness: 0, flatShading: true,
-  });
-  for (const [x, y, z, sx, sy, sz, angle] of [
-    [-33, 5, -43, 8, 8, 5, 0.3], [-17, 5, -43, 7, 10, 5, -0.4],
-    [14, 5, -47, 8, 9, 6, 0.5], [31, 4, -46, 8, 7, 5, -0.3],
-  ]) {
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 1), rockMaterial);
-    rock.position.set(x, y, z);
-    rock.scale.set(sx, sy, sz);
-    rock.rotation.set(0.08, angle, angle * 0.18);
-    rock.receiveShadow = true;
-    root.add(rock);
   }
 
   // a near dark ridge guarantees the moon stays hidden until the finale
@@ -968,17 +953,37 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   moonGroup.add(haloBig, haloMid, haloCore, moonHot);
   moonGroup.userData.moonHot = moonHot;
 
-  // A softly lit crescent reads as moonlight before it reads as a symbol.
-  // Two curved edges meet at tapered tips.
-  const crescent = new THREE.Shape();
-  crescent.moveTo(-1.7, 5.0);
-  crescent.bezierCurveTo(4.8, 5.2, 5.8, -3.6, -1.7, -5.0);
-  crescent.bezierCurveTo(1.2, -2.5, 1.5, 2.5, -1.7, 5.0);
-  const moonMesh = new THREE.Mesh(
-    new THREE.ShapeGeometry(crescent, 48),
-    new THREE.MeshBasicMaterial({ color: 0xd8e5ee, side: THREE.DoubleSide })
-  );
-  moonGroup.add(moonMesh);
+  let moonMesh = null;
+  if (gltfs.yue) {
+    moonMesh = fitModel(gltfs.yue, {
+      height: 10.4, widthScale: 1.0, depthScale: 1.0,
+      tint: 0xffffff, roughness: 0.82, metalness: 0.0,
+      emissive: 0xf1f7ff, emissiveIntensity: 5.2, emissiveFromMap: true,
+      envMapIntensity: 0.2, castShadow: false, receiveShadow: false,
+    });
+    moonMesh.rotation.y = -0.12;
+    moonMesh.traverse((o) => {
+      if (!o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m) continue;
+        m.emissiveMap?.dispose?.();
+        m.emissiveMap = null;
+        m.emissive = new THREE.Color(0xf3f8ff);
+        m.emissiveIntensity = 3.6;
+        m.map?.dispose?.();
+        m.map = null;
+        m.color = new THREE.Color(0xffffff);
+        m.roughness = 0.7;
+        m.metalness = 0.0;
+        m.needsUpdate = true;
+      }
+    });
+    moonGroup.add(moonMesh);
+  } else {
+    moonMesh = new THREE.Mesh(new THREE.SphereGeometry(3.4, 32, 24), new THREE.MeshBasicMaterial({ color: 0xe8f2ff }));
+    moonGroup.add(moonMesh);
+  }
 
   // small fixed star sparkles around the moon group (drift with it)
   const moonDust = new GlowPoints(scene, 36, { size: 1.9, color: 0xbcd8ff, drift: 0 });
@@ -1011,14 +1016,6 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
         tint: s.tint, roughness: 0.82, metalness: 0.01, envMapIntensity: 0.3,
         castShadow: false, receiveShadow: true,
       });
-      const foliage = new THREE.MeshStandardMaterial({ color: s.tint, roughness: 1, flatShading: true });
-      for (const [x, y, z, size] of [[-0.34, 0.73, 0.05, 0.17], [0.28, 0.83, -0.06, 0.16], [0.03, 0.96, 0.03, 0.14]]) {
-        const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), foliage);
-        leaves.position.set(s.p[0] + x * s.h, y * s.h, s.p[2] + z * s.h);
-        leaves.scale.set(size * s.h * 1.35, size * s.h * 0.62, size * s.h);
-        leaves.rotation.y = s.r[1];
-        root.add(leaves);
-      }
       root.add(t);
       trees.push(t);
     }
@@ -1088,6 +1085,8 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   /* ---------------------------------------------------------------- */
 
   const targets = [];
+  const charMixers = [];
+  let windowBuildIdx = 0;
 
   function buildWindow(parent, opts) {
     const g = new THREE.Group();
@@ -1114,21 +1113,53 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
       g.add(line);
     }
 
-    // silhouette of a person, facing out
-    const charMat = matChar.clone();
+    // silhouette of a person, facing out (Lux3D rigged/animated character GLB when available)
+    const winIdx = windowBuildIdx++;
+    const charMat = new THREE.MeshBasicMaterial({ color: 0x090707, transparent: true, opacity: 0 });
     const sil = new THREE.Group();
     sil.position.set(opts.personX ?? 0, 0.1, 0.08);
-    const bodyH = h * 0.44;
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(w * 0.115, bodyH, 4, 10), charMat);
-    body.position.y = -h * 0.13;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(w * 0.095, 16, 12), charMat);
-    head.position.y = -h * 0.13 + bodyH * 0.5 + w * 0.1;
-    const bun = new THREE.Mesh(new THREE.SphereGeometry(w * 0.037, 10, 8), charMat);
-    bun.position.set(0, head.position.y + w * 0.083, -0.015);
-    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(w * 0.032, bodyH * 0.42, 3, 8), charMat);
-    arm.position.set(w * 0.12, -h * 0.1, 0.012);
-    arm.rotation.z = 0.24;
-    sil.add(body, head, bun, arm);
+    let charMixer = null;
+    if (gltfs.ren) {
+      const hasAnims = Array.isArray(gltfs.ren.animations) && gltfs.ren.animations.length > 0;
+      const charRoot = hasAnims ? SkeletonUtils.clone(gltfs.ren.scene) : gltfs.ren.scene.clone(true);
+      charRoot.updateMatrixWorld(true);
+      const bbox = new THREE.Box3().setFromObject(charRoot);
+      const size = bbox.getSize(new V3());
+      const center = bbox.getCenter(new V3());
+      const sc = (h * 0.76) / Math.max(size.y, 0.0001);
+      const sx = sc * 0.88;
+      const sy = sc;
+      const sz = sc * (hasAnims ? 0.45 : 0.28);
+      charRoot.scale.set(sx, sy, sz);
+      charRoot.position.set(-center.x * sx, -bbox.min.y * sy - h * 0.44, -center.z * sz + 0.04);
+      charRoot.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = charMat;
+        o.castShadow = false;
+        o.receiveShadow = false;
+        o.frustumCulled = false;
+      });
+      sil.add(charRoot);
+      if (hasAnims) {
+        charMixer = new THREE.AnimationMixer(charRoot);
+        const clip = gltfs.ren.animations[winIdx % gltfs.ren.animations.length];
+        const action = charMixer.clipAction(clip);
+        action.play();
+        charMixer.update(winIdx * 1.3);
+      }
+    } else {
+      const bodyH = h * 0.44;
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(w * 0.115, bodyH, 4, 10), charMat);
+      body.position.y = -h * 0.13;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(w * 0.095, 16, 12), charMat);
+      head.position.y = -h * 0.13 + bodyH * 0.5 + w * 0.1;
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(w * 0.037, 10, 8), charMat);
+      bun.position.set(0, head.position.y + w * 0.083, -0.015);
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(w * 0.032, bodyH * 0.42, 3, 8), charMat);
+      arm.position.set(w * 0.12, -h * 0.1, 0.012);
+      arm.rotation.z = 0.24;
+      sil.add(body, head, bun, arm);
+    }
     sil.scale.setScalar(1);
     sil.visible = false;
     g.add(sil);
@@ -1206,6 +1237,7 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
       center: new V3(),
       proxy,
     };
+    if (charMixer) charMixers.push({ mixer: charMixer, win });
     proxy.userData.interact = { type: "window", target: win };
     interactives.push(proxy);
     return win;
@@ -1604,52 +1636,69 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
     frame.rotation.x = -0.22;
     yawGroup.add(frame);
 
-    const back = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.13, 56), matDarkBronze);
-    back.rotation.x = Math.PI / 2;
-    frame.add(back);
-    const face = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.93, 56), matMirror);
-    face.position.z = 0.071;
-    frame.add(face);
-    const backMat = matBronze.clone();
-    backMat.color = new THREE.Color(0x9b7b49);
-    backMat.roughness = 0.24;
-    backMat.metalness = 1;
-    backMat.envMapIntensity = 1.8;
-    const backFace = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.93, 56), backMat);
-    backFace.position.z = -0.071;
-    backFace.rotation.y = Math.PI;
-    frame.add(backFace);
-    for (const rr of [0.72, 0.5, 0.27]) {
-      const ringBack = new THREE.Mesh(new THREE.TorusGeometry(radius * rr, 0.012, 6, 48), matBronze);
-      ringBack.position.z = -0.086;
-      frame.add(ringBack);
-    }
-    const boss = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.09, 16, 12), matBronze);
-    boss.position.z = -0.11;
-    boss.scale.z = 0.6;
-    frame.add(boss);
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2;
-      const petal = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.028, 8, 6), matDarkBronze);
-      petal.position.set(Math.cos(a) * radius * 0.84, Math.sin(a) * radius * 0.84, -0.088);
-      frame.add(petal);
+    let face;
+    if (gltfs.jing) {
+      const mirrorModel = fitModel(gltfs.jing, {
+        height: radius * 2.12,
+        position: [0, -radius * 1.06, 0],
+        tint: 0xdcc08e,
+        roughness: 0.34,
+        metalness: 0.82,
+        envMapIntensity: 1.5,
+        castShadow: true,
+        receiveShadow: true,
+      });
+      frame.add(mirrorModel);
+      face = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.84, 56), matMirror);
+      face.position.z = radius * 0.115;
+      frame.add(face);
+    } else {
+      const back = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.13, 56), matDarkBronze);
+      back.rotation.x = Math.PI / 2;
+      frame.add(back);
+      face = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.93, 56), matMirror);
+      face.position.z = 0.071;
+      frame.add(face);
+      const backMat = matBronze.clone();
+      backMat.color = new THREE.Color(0x9b7b49);
+      backMat.roughness = 0.24;
+      backMat.metalness = 1;
+      backMat.envMapIntensity = 1.8;
+      const backFace = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.93, 56), backMat);
+      backFace.position.z = -0.071;
+      backFace.rotation.y = Math.PI;
+      frame.add(backFace);
+      for (const rr of [0.72, 0.5, 0.27]) {
+        const ringBack = new THREE.Mesh(new THREE.TorusGeometry(radius * rr, 0.012, 6, 48), matBronze);
+        ringBack.position.z = -0.086;
+        frame.add(ringBack);
+      }
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.09, 16, 12), matBronze);
+      boss.position.z = -0.11;
+      boss.scale.z = 0.6;
+      frame.add(boss);
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const petal = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.028, 8, 6), matDarkBronze);
+        petal.position.set(Math.cos(a) * radius * 0.84, Math.sin(a) * radius * 0.84, -0.088);
+        frame.add(petal);
+      }
+      const innerRim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.86, 0.018, 8, 64), matDarkBronze);
+      innerRim.position.z = 0.086;
+      frame.add(innerRim);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const stud = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), matBronze);
+        stud.position.set(Math.cos(a) * radius * 0.95, Math.sin(a) * radius * 0.95, 0.075);
+        frame.add(stud);
+      }
     }
     const rimMat = matBronze.clone();
     rimMat.emissive = new THREE.Color(0x1a1106);
     rimMat.emissiveIntensity = 0.12;
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.055, 10, 64), rimMat);
-    rim.position.z = 0.055;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.01, 0.042, 10, 64), rimMat);
+    rim.position.z = gltfs.jing ? radius * 0.06 : 0.055;
     frame.add(rim);
-    const innerRim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.86, 0.018, 8, 64), matDarkBronze);
-    innerRim.position.z = 0.086;
-    frame.add(innerRim);
-    // radial studs
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const stud = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), matBronze);
-      stud.position.set(Math.cos(a) * radius * 0.95, Math.sin(a) * radius * 0.95, 0.075);
-      frame.add(stud);
-    }
     // a pale glaze arc on the mirror face to read as polished metal
     const sheen = new THREE.Mesh(
       new THREE.RingGeometry(radius * 0.52, radius * 0.7, 36, 1, Math.PI * 0.75, Math.PI * 0.55),
@@ -1736,7 +1785,28 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   const boatVisual = new THREE.Group();
   boat.add(boatVisual);
 
-  {
+  if (gltfs.zhou) {
+    const boatModel = fitModel(gltfs.zhou, {
+      height: 2.55,
+      position: [0, -0.05, -0.35],
+      tint: 0xc2b29e,
+      roughness: 0.78,
+      metalness: 0.08,
+      envMapIntensity: 0.7,
+      castShadow: true,
+      receiveShadow: true,
+    });
+    boatVisual.add(boatModel);
+    const lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial, color: 0xffa760, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }));
+    lampGlow.position.set(0, 1.85, -1.55);
+    lampGlow.scale.set(2.3, 2.3, 1);
+    boatVisual.add(lampGlow);
+    const wake = new THREE.Sprite(new THREE.SpriteMaterial({ map: radial, color: 0x6c9cc4, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending }));
+    wake.rotation.x = -Math.PI / 2;
+    wake.scale.set(5.4, 8.6, 1);
+    wake.position.set(0, 0.09, 0);
+    boatVisual.add(wake);
+  } else {
     const shape = new THREE.Shape();
     shape.moveTo(0, 2.35);
     shape.bezierCurveTo(0.48, 1.75, 0.78, 0.8, 0.8, 0.1);
@@ -1796,7 +1866,7 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   const mirrorB = createMirror({
     x: 0, z: 0, height: 2.62, radius: 0.94, pedestalHeight: 2.2, label: "b", stand: false, onBoat: true,
   });
-  mirrorB.root.position.set(0, 0.66, 0.55);
+  mirrorB.root.position.set(0, gltfs.zhou ? 0.58 : 0.66, gltfs.zhou ? 1.5 : 0.55);
   // a slender bronze post holding the boat mirror
   const bMount = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.16, 2.3, 10), matDarkBronze);
   bMount.position.y = 1.15;
@@ -1812,10 +1882,10 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
   mirrorB.yaw.rotation.y = mirrorB.yawAngle;
 
   const boatHit = new THREE.Mesh(
-    new THREE.BoxGeometry(3.6, 1.1, 5.0),
+    new THREE.BoxGeometry(4.2, 1.6, 5.6),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
   );
-  boatHit.position.y = 0.42;
+  boatHit.position.y = 0.65;
   boatVisual.add(boatHit);
   boatHit.userData.interact = { type: "boat" };
   interactives.push(boatHit);
@@ -1847,7 +1917,15 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
     gl.scale.set(1.15, 1.15, 1);
     buoyGroup.add(gl);
     root.add(buoyGroup);
-    dockMarkers.push({ ring, buoy: buoyGroup, glow: gl, active: i === 0 });
+    const dockProxy = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.6, 2.6, 1.6, 12),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+    );
+    dockProxy.position.set(p.x, 0.6, p.z);
+    dockProxy.userData.interact = { type: "dock", index: i };
+    root.add(dockProxy);
+    interactives.push(dockProxy);
+    dockMarkers.push({ ring, buoy: buoyGroup, glow: gl, proxy: dockProxy, active: i === 0 });
   }
 
   function setYaw(mirror, angle) {
@@ -2330,9 +2408,9 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
       const reveal = THREE.MathUtils.smoothstep(amt, 0.08, 0.92);
       t.silhouette.visible = reveal > 0.005;
       if (t.silhouette.visible) {
-        t.silhouette.position.y = 0.01 + reveal * 0.09 + Math.sin(time * 1.2 + i) * 0.01 * reveal;
+        t.silhouette.position.y = 0.01 + reveal * 0.09 + Math.sin(time * 1.2 + i) * 0.008 * reveal;
         t.silhouette.position.z = 0.05 + reveal * 0.035;
-        t.silhouette.rotation.y = Math.sin(time * 0.65 + i * 2) * 0.06 * reveal;
+        t.silhouette.rotation.y = Math.sin(time * 0.65 + i * 2) * 0.05 * reveal;
       }
       for (const m of t.personMaterials) {
         m.transparent = true;
@@ -2462,11 +2540,14 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
     mirrorB.root.getWorldPosition(mirrorCenters.b);
     mirrorCenters.b.y += mirrorB.height;
 
-    // particles
+    // particles & skeletal character animations
     fireflies.update(dt, time);
     beamDust.update(dt, time);
     bursts.update(dt, time);
     silverBursts.update(dt, time);
+    for (const cm of charMixers) {
+      if (cm.win.silhouette.visible) cm.mixer.update(dt);
+    }
 
     // memory beams
     state.memoryAlpha = damp(state.memoryAlpha, state.memoryOn ? 1 : 0, state.memoryOn ? 1.1 : 2.2, dt);
@@ -2566,6 +2647,7 @@ export async function buildWorld({ scene, renderer, camera, onProgress, onNote }
     },
     modelsLoaded: {
       shan: !!gltfs.shan, shui: !!gltfs.shui, huo: !!gltfs.huo, mu: !!gltfs.mu, yue: !!gltfs.yue,
+      jing: !!gltfs.jing, zhou: !!gltfs.zhou, ren: !!gltfs.ren,
     },
     dispose() {},
   };

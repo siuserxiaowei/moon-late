@@ -489,6 +489,33 @@ body.is-finale .chapter { opacity: 0.55; }
 
 #tip.show { opacity: 1; }
 
+#guide-pill {
+  position: absolute;
+  z-index: 12;
+  top: 0;
+  left: 0;
+  padding: 6px 12px;
+  border: 1px solid rgba(214, 232, 252, 0.42);
+  border-radius: 999px;
+  background: rgba(6, 13, 22, 0.82);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45), 0 0 16px rgba(173, 208, 246, 0.16);
+  font: 400 11px/1.2 var(--serif);
+  letter-spacing: 0.14em;
+  color: #e9f3ff;
+  pointer-events: none;
+  opacity: 0;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  transition: opacity 0.35s ease;
+}
+
+#guide-pill.show { opacity: 0.94; }
+#guide-pill.target-mode {
+  border-color: rgba(255, 206, 145, 0.6);
+  color: #ffe3bc;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 185, 105, 0.24);
+}
+
 #flash {
   position: absolute;
   inset: 0;

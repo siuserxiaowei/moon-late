@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#05080d" />
+    <title>月亮迟到了 · 但愿人长久，千里共婵娟</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23070b12'/%3E%3Cpath d='M40 12a22 22 0 1 0 0 40 26 26 0 0 1 0-40z' fill='%23dce9ff'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body data-mode="loading">
+    <div id="app">
+      <canvas id="c"></canvas>
+      <div class="grade"></div>
+
+      <section id="loading" aria-live="polite">
+        <div class="loading-inner">
+          <p class="loading-eyebrow">MOON, LATE</p>
+          <h2>正在借月光</h2>
+          <div class="loading-track"><i id="load-fill"></i></div>
+          <p class="loading-row"><span id="load-note">山把月亮藏了起来</span><b id="load-pct">0%</b></p>
+        </div>
+      </section>
+
+      <section id="title-screen">
+        <div class="title-copy">
+          <div class="title-column">
+            <div class="title-head">
+              <div class="title-vert">
+                <h1 class="vertical-title">月亮迟到了</h1>
+                <div class="title-rule"></div>
+                <p class="vertical-poem">但愿人长久<br />千里共婵娟</p>
+              </div>
+              <div class="title-eyebrow"><span class="stamp">借光</span><span>苏轼 · 水调歌头</span></div>
+            </div>
+            <p class="title-lead">两座山挡住了月亮。<br />山谷里，三扇窗在等一束借来的光。</p>
+            <button id="start" type="button"><span>借一束月光</span><em>点击提灯入园</em></button>
+            <p class="title-foot">拖动铜镜旋转 · 点击小舟换渡口 · 把光送到看不见的人那里</p>
+          </div>
+        </div>
+        <div class="title-corner">
+          <span>夜 · 山谷 · 三扇窗</span>
+          <i></i>
+        </div>
+      </section>
+
+      <div id="hud">
+        <div class="brand">
+          <span class="brand-seal">迟</span>
+          <div><b>月亮迟到了</b><small>MOON, LATE</small></div>
+        </div>
+        <div class="chapter">
+          <span id="chapter-no">壹</span>
+          <div><b id="chapter-title">借光</b><small id="chapter-sub">让月光落在东窗</small></div>
+        </div>
+        <div class="goals" id="goals"></div>
+        <p class="hint" id="hint">拖动左侧铜镜，转动月光。</p>
+        <div class="controls">
+          <button id="hintBtn" type="button">提示</button>
+          <button id="resetBtn" type="button">重置</button>
+          <button id="soundBtn" type="button" aria-label="开启或关闭声音" title="声音">♪</button>
+        </div>
+      </div>
+
+      <div id="poem-toast" aria-live="polite"></div>
+      <div id="tip"></div>
+
+      <section id="ending">
+        <div class="ending-inner">
+          <p class="ending-eyebrow">MOON, LATE</p>
+          <h2>月亮迟到了</h2>
+          <div class="ending-rule"></div>
+          <p class="ending-poem">但愿人长久<br />千里共婵娟</p>
+          <p class="ending-note">你借了三束月光，送给三个看不见彼此的人。</p>
+          <button id="replay" type="button">再看一次</button>
+        </div>
+      </section>
+
+      <div id="flash"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
